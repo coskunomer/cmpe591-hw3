@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.init as init
 
 
 class VPG(nn.Module):
@@ -11,7 +12,14 @@ class VPG(nn.Module):
             layers.append(nn.Linear(hl[i-1], hl[i]))
             layers.append(nn.ReLU())
         layers.append(nn.Linear(hl[-1], act_dim*2))  # act_dim * (1 for mean + 1 for std)
+        
         self.model = nn.Sequential(*layers)
+
+        # Initialize weights using Xavier initialization
+        for layer in self.model:
+            if isinstance(layer, nn.Linear):
+                init.xavier_normal_(layer.weight)
+                init.constant_(layer.bias, 0)
 
     def forward(self, x):
         return self.model(x)

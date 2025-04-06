@@ -3,7 +3,7 @@ import torchvision.transforms as transforms
 import numpy as np
 
 import environment
-from reinforce_agent import Agent
+from actor_critic_agent import ActorCriticAgent
 
 
 class Hw3Env(environment.BaseEnv):
@@ -121,7 +121,7 @@ class Hw3Env(environment.BaseEnv):
 
 if __name__ == "__main__":
     env = Hw3Env(render_mode="offscreen")
-    agent = Agent()
+    agent = ActorCriticAgent()
     num_episodes = 10000
 
     rews = []
