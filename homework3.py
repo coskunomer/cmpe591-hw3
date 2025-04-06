@@ -10,9 +10,9 @@ class Hw3Env(environment.BaseEnv):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._delta = 0.05
-        self._goal_thresh = 0.075  # easier goal detection
-        self._max_timesteps = 300  # allow more steps
-        self._prev_obj_pos = None  # track object movement
+        self._goal_thresh = 0.075  
+        self._max_timesteps = 70 
+        self._prev_obj_pos = None 
 
     def _create_scene(self, seed=None):
         if seed is not None:
@@ -147,7 +147,7 @@ if __name__ == "__main__":
         rews.append(cumulative_reward)
         agent.update_model()
 
-    ## Save the model and the training statistics
+        if (i + 1) % 10 == 0:
+            np.save("rews.npy", np.array(rews))  
+
     torch.save(agent.model.state_dict(), "model.pt")
-    np.save("rews.npy", np.array(rews))
-        
