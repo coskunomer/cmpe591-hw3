@@ -102,6 +102,8 @@ class Hw3Env(environment.BaseEnv):
         return self._t >= self._max_timesteps
     
     def step(self, action):
+        if isinstance(action, int):
+            action = torch.tensor(action, dtype=torch.float32)
         action = action.clamp(-1, 1).cpu().numpy() * self._delta
         ee_pos = self.data.site(self._ee_site).xpos[:2]
         target_pos = np.concatenate([ee_pos, [1.06]])
@@ -135,7 +137,7 @@ if __name__ == "__main__":
 
         while not done:
             action = agent.decide_action(state)
-            next_state, reward, is_terminal, is_truncated = env.step(action[0])
+            next_state, reward, is_terminal, is_truncated = env.step(action)
             agent.add_reward(reward)
             cumulative_reward += reward
             done = is_terminal or is_truncated
@@ -148,7 +150,7 @@ if __name__ == "__main__":
         agent.update_model()
 
         if (i + 1) % 100 == 0:
-            np.save("rews.npy", np.array(rews))
-            torch.save(agent.model.state_dict(), "model.pt")
+            np.save("rews_actor_critic.npy", np.array(rews))
+            torch.save(agent.model.state_dict(), "model_actor_critic.pt")
 
-    torch.save(agent.model.state_dict(), "model.pt")
+    torch.save(agent.model.state_dict(), "model_actor_critic.pt")
