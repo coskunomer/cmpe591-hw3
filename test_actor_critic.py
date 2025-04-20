@@ -3,16 +3,16 @@ import torchvision.transforms as transforms
 import numpy as np
 
 import environment
-from actor_critic_agent import ActorCriticAgent
-
+from actor_critic.actor_critic_agent import ActorCriticAgent
 
 class Hw3Env(environment.BaseEnv):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._delta = 0.05
         self._goal_thresh = 0.075  
-        self._max_timesteps = 50 
+        self._max_timesteps = 30 
         self._prev_obj_pos = None 
+        self._prev_ee_pos = None
 
     def _create_scene(self, seed=None):
         if seed is not None:
@@ -34,7 +34,6 @@ class Hw3Env(environment.BaseEnv):
     
     def reset(self):
         super().reset()
-        self._prev_obj_pos = self.data.body("obj1").xpos[:2].copy()  # initialize previous position
         self._t = 0
 
         try:
@@ -69,24 +68,20 @@ class Hw3Env(environment.BaseEnv):
         d_ee_to_obj = np.linalg.norm(ee_pos - obj_pos)
         d_obj_to_goal = np.linalg.norm(obj_pos - goal_pos)
 
-        # distance-based rewards
-        r_ee_to_obj = -0.1 * d_ee_to_obj  # getting closer to object
-        r_obj_to_goal = -0.2 * d_obj_to_goal  # moving object to goal
+        prev_d_ee_to_obj = np.linalg.norm(self._prev_ee_pos - self._prev_obj_pos)
+        prev_d_obj_to_goal = np.linalg.norm(self._prev_obj_pos - goal_pos)
 
-        # direction bonus
-        obj_movement = obj_pos - self._prev_obj_pos
-        dir_to_goal = (goal_pos - obj_pos) / (np.linalg.norm(goal_pos - obj_pos) + 1e-8)
-        r_direction = 0.5 * max(0, np.dot(obj_movement / (np.linalg.norm(obj_movement) + 1e-8), dir_to_goal))
-        if np.linalg.norm(obj_movement) < 1e-6:  # Avoid division by zero
-            r_direction = 0.0
+        r_grasp = prev_d_ee_to_obj - d_ee_to_obj     
+        r_push = prev_d_obj_to_goal - d_obj_to_goal
+        r_direction = r_grasp + r_push
 
-        # terminal bonus
-        r_terminal = 10.0 if self.is_terminal() else 0.0
+        r_terminal = 1.0 if self.is_terminal() else 0.0
 
-        r_step = -0.1  # penalty for each step
+        r_step = -0.01  
 
         self._prev_obj_pos = obj_pos.copy()
-        return r_ee_to_obj + r_obj_to_goal + r_direction + r_terminal + r_step
+        self._prev_ee_pos = ee_pos.copy()
+        return r_direction + r_terminal + r_step
 
     def is_terminal(self):
         obj_pos = self.data.body("obj1").xpos[:2]
@@ -102,8 +97,6 @@ class Hw3Env(environment.BaseEnv):
         return self._t >= self._max_timesteps
     
     def step(self, action):
-        if isinstance(action, int):
-            action = torch.tensor(action, dtype=torch.float32)
         action = action.clamp(-1, 1).cpu().numpy() * self._delta
         ee_pos = self.data.site(self._ee_site).xpos[:2]
         target_pos = np.concatenate([ee_pos, [1.06]])
@@ -119,38 +112,43 @@ class Hw3Env(environment.BaseEnv):
             truncated = self.is_truncated()
         else:  # If didn't realize the action
             truncated = True
-        return state, reward, terminal, truncated
+        return state, reward, terminal, truncated  
 
-if __name__ == "__main__":
-    env = Hw3Env(render_mode="offscreen")
+def evaluate_model(num_episodes=100):
+    render_mode = "gui"
+    env = Hw3Env(render_mode=render_mode)
     agent = ActorCriticAgent()
-    num_episodes = 10000
+
+    agent.model.load_state_dict(torch.load("actor_critic/model_actor_critic.pt"))
+    agent.model.eval()
 
     rews = []
 
-    for i in range(num_episodes):        
+    for i in range(num_episodes):
         env.reset()
         state = env.high_level_state()
+        ee_pos = state[:2]
+        obj_pos = state[2:4]
+        env._prev_obj_pos = obj_pos.copy()
+        env._prev_ee_pos = ee_pos.copy()
         done = False
         cumulative_reward = 0.0
         episode_steps = 0
 
         while not done:
             action = agent.decide_action(state)
-            next_state, reward, is_terminal, is_truncated = env.step(action)
-            agent.add_reward(reward)
+            print("ACTION:", action)
+
+            next_state, reward, is_terminal, is_truncated = env.step(action[0])
             cumulative_reward += reward
             done = is_terminal or is_truncated
-            
             state = next_state
-            episode_steps += 1
 
-        print(f"Episode={i}, reward={cumulative_reward}")
+        print(f"[Test] Episode={i}, reward={cumulative_reward}")
         rews.append(cumulative_reward)
-        agent.update_model()
 
-        if (i + 1) % 100 == 0:
-            np.save("rews_actor_critic.npy", np.array(rews))
-            torch.save(agent.model.state_dict(), "model_actor_critic.pt")
+    print(f"\nAverage reward over {num_episodes} episodes: {np.mean(rews):.2f}")
+    return rews
 
-    torch.save(agent.model.state_dict(), "model_actor_critic.pt")
+if __name__ == "__main__":
+    evaluate_model(num_episodes=100)

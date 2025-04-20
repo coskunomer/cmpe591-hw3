@@ -3,7 +3,7 @@ import torchvision.transforms as transforms
 import numpy as np
 
 import environment
-from reinforce_agent import Agent
+from actor_critic.actor_critic_agent import ActorCriticAgent
 
 
 class Hw3Env(environment.BaseEnv):
@@ -11,8 +11,9 @@ class Hw3Env(environment.BaseEnv):
         super().__init__(**kwargs)
         self._delta = 0.05
         self._goal_thresh = 0.075  
-        self._max_timesteps = 50 
+        self._max_timesteps = 30
         self._prev_obj_pos = None 
+        self._prev_ee_pos = None
 
     def _create_scene(self, seed=None):
         if seed is not None:
@@ -34,7 +35,6 @@ class Hw3Env(environment.BaseEnv):
     
     def reset(self):
         super().reset()
-        self._prev_obj_pos = self.data.body("obj1").xpos[:2].copy()  # initialize previous position
         self._t = 0
 
         try:
@@ -60,7 +60,6 @@ class Hw3Env(environment.BaseEnv):
         return np.concatenate([ee_pos, obj_pos, goal_pos])
 
     def reward(self):
-        
         state = self.high_level_state()
         ee_pos = state[:2]
         obj_pos = state[2:4]
@@ -69,24 +68,27 @@ class Hw3Env(environment.BaseEnv):
         d_ee_to_obj = np.linalg.norm(ee_pos - obj_pos)
         d_obj_to_goal = np.linalg.norm(obj_pos - goal_pos)
 
-        # distance-based rewards
-        r_ee_to_obj = -0.1 * d_ee_to_obj  # getting closer to object
-        r_obj_to_goal = -0.2 * d_obj_to_goal  # moving object to goal
+        prev_d_ee_to_obj = np.linalg.norm(self._prev_ee_pos - self._prev_obj_pos)
+        prev_d_obj_to_goal = np.linalg.norm(self._prev_obj_pos - goal_pos)
 
-        # direction bonus
-        obj_movement = obj_pos - self._prev_obj_pos
-        dir_to_goal = (goal_pos - obj_pos) / (np.linalg.norm(goal_pos - obj_pos) + 1e-8)
-        r_direction = 0.5 * max(0, np.dot(obj_movement / (np.linalg.norm(obj_movement) + 1e-8), dir_to_goal))
-        if np.linalg.norm(obj_movement) < 1e-6:  # Avoid division by zero
-            r_direction = 0.0
+        # Individual components
+        delta_grasp = prev_d_ee_to_obj - d_ee_to_obj
+        delta_push = prev_d_obj_to_goal - d_obj_to_goal
 
-        # terminal bonus
-        r_terminal = 10.0 if self.is_terminal() else 0.0
+        # Asymmetric shaping
+        def asymmetric(delta, pos_scale=1.0, neg_scale=1.5):
+            return pos_scale * delta if delta > 0 else neg_scale * delta
 
-        r_step = -0.1  # penalty for each step
+        r_grasp = asymmetric(delta_grasp)
+        r_push = asymmetric(delta_push)
+        r_direction = r_grasp + r_push
 
+        # Update previous positions for next step
         self._prev_obj_pos = obj_pos.copy()
-        return r_ee_to_obj + r_obj_to_goal + r_direction + r_terminal + r_step
+        self._prev_ee_pos = ee_pos.copy()
+
+        return 10 * r_direction - 1
+
 
     def is_terminal(self):
         obj_pos = self.data.body("obj1").xpos[:2]
@@ -120,8 +122,8 @@ class Hw3Env(environment.BaseEnv):
         return state, reward, terminal, truncated
 
 if __name__ == "__main__":
-    env = Hw3Env(render_mode="offscreen")
-    agent = Agent()
+    env = Hw3Env(render_mode="off")
+    agent = ActorCriticAgent()
     num_episodes = 10000
 
     rews = []
@@ -129,13 +131,17 @@ if __name__ == "__main__":
     for i in range(num_episodes):        
         env.reset()
         state = env.high_level_state()
+        ee_pos = state[:2]
+        obj_pos = state[2:4]
+        env._prev_obj_pos = obj_pos.copy()
+        env._prev_ee_pos = ee_pos.copy()
         done = False
         cumulative_reward = 0.0
         episode_steps = 0
 
         while not done:
             action = agent.decide_action(state)
-            next_state, reward, is_terminal, is_truncated = env.step(action[0])
+            next_state, reward, is_terminal, is_truncated = env.step(action)
             agent.add_reward(reward)
             cumulative_reward += reward
             done = is_terminal or is_truncated
@@ -147,8 +153,8 @@ if __name__ == "__main__":
         rews.append(cumulative_reward)
         agent.update_model()
 
-        if (i + 1) % 100 == 0:
-            np.save("rews.npy", np.array(rews))
-            torch.save(agent.model.state_dict(), "model.pt")
+        # if (i + 1) % 100 == 0:
+            # np.save("rews_actor_critic.npy", np.array(rews))
+            # torch.save(agent.model.state_dict(), "model_actor_critic.pt")
 
-    torch.save(agent.model.state_dict(), "model.pt")
+    # torch.save(agent.model.state_dict(), "model_actor_critic.pt")

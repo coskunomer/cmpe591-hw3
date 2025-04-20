@@ -11,11 +11,10 @@ class VPG(nn.Module):
         for i in range(1, len(hl)):
             layers.append(nn.Linear(hl[i-1], hl[i]))
             layers.append(nn.ReLU())
-        layers.append(nn.Linear(hl[-1], act_dim*2))  # act_dim * (1 for mean + 1 for std)
+        layers.append(nn.Linear(hl[-1], act_dim*2))
         
         self.model = nn.Sequential(*layers)
 
-        # Initialize weights using Xavier initialization
         for layer in self.model:
             if isinstance(layer, nn.Linear):
                 init.xavier_normal_(layer.weight)

@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-rewards = np.load('rews.npy')
+PATH = 'actor_critic/rews_actor_critic.npy'
+rewards = np.load(PATH)
 
 def exponential_moving_average(data, alpha=0.1):
     ema = np.zeros_like(data)
